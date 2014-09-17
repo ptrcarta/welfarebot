@@ -1,0 +1,67 @@
+#!/usr/bin/env bash
+
+: "${ircdir:=$HOME/ircbot}"
+: "${nickname:=welfarebot}"
+
+
+declare -A networks=(
+    [irc.rizon.net]="#/g/testing
+                    #/g/sicp
+                    #/g/punk
+                    #podricing"
+)
+
+# some privacy please, thanks
+chmod 700 "$ircdir"
+chmod 600 "$ircdir"/*/ident &>/dev/null
+
+monitor() {
+    tailf -n1 "$ircdir/$network/$channelsanitize/out" | \
+        while read -r date time nick msg; do
+            # if msg is by the system ignore it
+            [[ "$nick" == '-!-' ]] && continue
+            # strip < and >. if msg is by ourself ignore it
+            nick=$(echo $nick | tr '<>' ' ')
+            [[ "$nick" == "$nickname" ]] && continue
+
+            # if msg contains a url, transform to url command
+#            [[ "$msg" =~ https?:// ]] && \
+#                exec $ircdir/iicmd "$nick" "url ${msg#* }" "$ircdir" "$network" "$channel" "$nickname" | fold -w 255 &
+            # if msg is a command, invoke $ircdir/iicmd
+            [[ "$msg" =~ ^! ]] && \
+                exec $ircdir/iicmd "$nick" "${msg#\!}" "$ircdir" "$network" "$channelsanitize" "$nickname" | fold -w 255 &
+        done > "$ircdir/$network/$channelsanitize/in"
+}
+
+for network in "${!networks[@]}"; do
+    while true; do
+        # cleanup
+        rm -f "$ircdir/$network/in"
+
+        # connect to netwrok - password is set through the env var IIPASS
+        ii -i "$ircdir" -n $nickname -s "$network" &
+        pid="$!"
+
+        # wait for the connection
+        while ! test -p "$ircdir/$network/in"; do sleep 1; done
+
+        # auth to services
+#        [[ -e "$ircdir/$network/ident" ]] && \
+            #printf -- "/j nickserv identify %s\n" "$(<"$ircdir/$network/ident")" > "$ircdir/$network/in"
+#        rm -f "$ircdir/$network/nickserv/out" # clean that up - ident passwd is in there
+
+        # join channels
+        for channel in ${networks[$network]}; do
+            printf -- "/j %s\n" "$channel" > "$ircdir/$network/in"
+            channelsanitize=$(echo $channel | tr '/' ',')
+            [[ -e "$ircdir/$network/$channelsanitize/out" ]] || touch "$ircdir/$network/$channelsanitize/out"
+            monitor &
+            pids+=($!)
+        done
+
+        # if connection is lost reconnect
+        wait "$pid"
+        kill "${pids[@]}"
+    done &
+done
+
