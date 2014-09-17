@@ -1,3 +1,9 @@
+## WelfareBot
+
+A little bot based on iibot by c00kiemonster that, using ImageMagick, will resize any image following the !ampoor request.
+Everything is bash.
+
+
 
 ## iibot
 
